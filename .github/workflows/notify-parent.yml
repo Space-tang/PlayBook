@@ -4,13 +4,13 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '**/__meta__.txt'      # 监控所有项目的元数据文件变化
-      - '*/'                   # 监控新目录创建
-      - '**/*.md'              # 监控 README 等文档变化
-      - '**/*.json'            # 监控配置文件变化
-      - '**/*.yml'             # 监控工作流文件变化
-      - '**/*.yaml'            # 监控 YAML 配置文件变化
-  workflow_dispatch:           # 支持手动触发
+      - '**/__meta__.txt'
+      - '*/'
+      - '**/*.md'
+      - '**/*.json'
+      - '**/*.yml'
+      - '**/*.yaml'
+  workflow_dispatch:
 
 jobs:
   notify-parent:
@@ -19,35 +19,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # 获取最近两次提交以便比较
-      
+          fetch-depth: 2
+
       - name: Get commit information
-        id: commit-info
         run: |
-          # 获取最新提交信息
           COMMIT_MESSAGE=$(git log -1 --pretty=format:"%s")
           COMMIT_SHA=$(git rev-parse HEAD)
           COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an")
           
-          # 转义特殊字符以便在 JSON 中使用
           COMMIT_MESSAGE_ESCAPED=$(echo "$COMMIT_MESSAGE" | sed 's/"/\\"/g' | sed "s/'/\\'/g")
           
-          # 输出到环境变量
           echo "COMMIT_MESSAGE=$COMMIT_MESSAGE_ESCAPED" >> $GITHUB_ENV
           echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
           echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
           
-          # 显示提交信息
-          echo "📝 提交信息: $COMMIT_MESSAGE"
-          echo "🔗 提交SHA: $COMMIT_SHA"
-          echo "👤 提交作者: $COMMIT_AUTHOR"
+          echo "📝 提交: $COMMIT_MESSAGE"
+          echo "🔗 SHA: $COMMIT_SHA"
 
-      - name: Trigger parent repository deployment
+      - name: Trigger parent repository
         run: |
-          # 获取当前时间戳
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           
-          # 发送 Repository Dispatch 事件
           RESPONSE=$(curl -s -w "%{http_code}" -X POST \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.PLAYBOOK_PLAYBOOK_DOOR }}" \
@@ -63,113 +55,16 @@ jobs:
                 \"commit_message\": \"$COMMIT_MESSAGE\",
                 \"commit_sha\": \"$COMMIT_SHA\",
                 \"commit_author\": \"$COMMIT_AUTHOR\",
-                \"workflow_run_id\": \"${{ github.run_id }}\",
-                \"workflow_run_number\": \"${{ github.run_number }}\",
-                \"github_actor\": \"${{ github.actor }}\"
+                \"workflow_run_id\": \"${{ github.run_id }}\"
               }
             }")
           
-          # 提取 HTTP 状态码
           HTTP_CODE="${RESPONSE: -3}"
-          RESPONSE_BODY="${RESPONSE%???}"
-          
-          # 详细的错误处理和日志记录
-          echo "🔍 API 调用详情:"
-          echo "   - 目标仓库: Space-tang/Playbook-Door"
-          echo "   - 事件类型: submodule-update"
-          echo "   - 时间戳: $TIMESTAMP"
-          echo "   - HTTP 状态码: $HTTP_CODE"
           
           if [ "$HTTP_CODE" -eq 204 ]; then
-            echo ""
-            echo "✅ API 请求成功！"
-            echo "📤 已成功发送 repository dispatch 事件到 Playbook-Door"
-            echo "🎯 事件负载包含:"
-            echo "   - 仓库: PlayBook"
-            echo "   - 分支: main"
-            echo "   - 提交: $COMMIT_SHA"
-            echo "   - 消息: $COMMIT_MESSAGE"
-            echo "   - 作者: $COMMIT_AUTHOR"
-          elif [ "$HTTP_CODE" -eq 401 ]; then
-            echo ""
-            echo "❌ 认证失败 (HTTP 401)"
-            echo "🔑 可能的原因:"
-            echo "   - PARENT_REPO_TOKEN 密钥不存在或无效"
-            echo "   - Token 已过期"
-            echo "💡 解决方案:"
-            echo "   - 检查仓库 Secrets 中的 PARENT_REPO_TOKEN"
-            echo "   - 重新生成 Personal Access Token"
-            echo "📄 响应内容: $RESPONSE_BODY"
-            exit 1
-          elif [ "$HTTP_CODE" -eq 403 ]; then
-            echo ""
-            echo "❌ 权限不足 (HTTP 403)"
-            echo "🚫 可能的原因:"
-            echo "   - Token 缺少 'repo' 权限"
-            echo "   - Token 缺少 'workflow' 权限"
-            echo "   - 无法访问目标仓库 Playbook-Door"
-            echo "💡 解决方案:"
-            echo "   - 确认 Token 有 'repo' 和 'workflow' 权限"
-            echo "   - 确认 Token 创建者有访问 Playbook-Door 的权限"
-            echo "📄 响应内容: $RESPONSE_BODY"
-            exit 1
-          elif [ "$HTTP_CODE" -eq 404 ]; then
-            echo ""
-            echo "❌ 仓库未找到 (HTTP 404)"
-            echo "🔍 可能的原因:"
-            echo "   - 目标仓库 Space-tang/Playbook-Door 不存在"
-            echo "   - 仓库名称拼写错误"
-            echo "   - 仓库是私有的但 Token 无访问权限"
-            echo "📄 响应内容: $RESPONSE_BODY"
-            exit 1
-          elif [ "$HTTP_CODE" -eq 422 ]; then
-            echo ""
-            echo "❌ 请求格式错误 (HTTP 422)"
-            echo "📝 可能的原因:"
-            echo "   - JSON 格式不正确"
-            echo "   - event_type 参数无效"
-            echo "   - client_payload 格式错误"
-            echo "📄 响应内容: $RESPONSE_BODY"
-            exit 1
+            echo "✅ 成功通知 Playbook-Door 仓库"
           else
-            echo ""
-            echo "❌ 未知错误 (HTTP $HTTP_CODE)"
-            echo "🔧 请检查:"
-            echo "   - 网络连接是否正常"
-            echo "   - GitHub API 服务状态"
-            echo "   - 请求参数是否正确"
-            echo "📄 响应内容: $RESPONSE_BODY"
+            echo "❌ 通知失败 (HTTP $HTTP_CODE)"
+            echo "响应: ${RESPONSE%???}"
             exit 1
           fi
-
-      - name: Show notification result
-        if: success()
-        run: |
-          echo ""
-          echo "🎉 通知流程完成！"
-          echo "✅ 已成功通知父仓库更新"
-          echo "🔄 Playbook-Door 将自动部署最新内容"
-          echo ""
-          echo "📋 本次更新摘要:"
-          echo "   - 提交信息: $COMMIT_MESSAGE"
-          echo "   - 提交SHA: $COMMIT_SHA"
-          echo "   - 提交作者: $COMMIT_AUTHOR"
-          echo "   - 工作流ID: ${{ github.run_id }}"
-          echo ""
-          echo "🔗 查看 Playbook-Door 工作流状态:"
-          echo "   https://github.com/Space-tang/Playbook-Door/actions"
-
-      - name: Failure notification
-        if: failure()
-        run: |
-          echo ""
-          echo "💥 通知流程失败！"
-          echo "❌ 未能成功通知父仓库"
-          echo ""
-          echo "🔍 故障排除步骤:"
-          echo "1. 检查 PARENT_REPO_TOKEN 密钥是否正确设置"
-          echo "2. 验证 Token 权限 (需要 repo 和 workflow 权限)"
-          echo "3. 确认目标仓库 Space-tang/Playbook-Door 存在且可访问"
-          echo "4. 查看上方的详细错误信息"
-          echo ""
-          echo "📚 参考文档: SETUP_TOKEN.md"
